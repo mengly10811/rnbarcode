@@ -130,7 +130,11 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
-
+    configurations.all {
+            resolutionStrategy {
+                force 'com.facebook.react:react-native:0.68.2'
+            }
+        }
     // applicationVariants are e.g. debug, release
     applicationVariants.all { variant ->
         variant.outputs.each { output ->
