@@ -1,10 +1,14 @@
 package com.barcode
+
+import com.barcode.manager.*
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.annotation.SuppressLint
 import android.util.Log
 import android.util.Range
@@ -12,6 +16,9 @@ import android.hardware.camera2.*
 import android.view.*
 import android.view.View.OnTouchListener
 
+import android.graphics.Color
+
+import android.graphics.drawable.Drawable
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.*
 import androidx.camera.core.impl.*
@@ -49,6 +56,14 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
         private val propsThatRequireSessionReconfiguration = arrayListOf("cameraId", "format", "fps", "hdr", "lowLightBoost", "photo", "video", "enableFrameProcessor")
         private val arrayListOfZoom = arrayListOf("zoom")
     }
+
+    private val HOVER_TAP_TIMEOUT = 150
+
+    private val HOVER_TAP_SLOP = 20
+
+    private val ZOOM_STEP_SIZE:Float=0.1f
+
+
     // react properties
     // props that require reconfiguring
     var cameraId: String? = null // this is actually not a react prop directly, but the result of setting device={}
@@ -73,6 +88,11 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
     // other props
     var isActive = false
     var torch = "off" //手电筒
+     /**
+     * 闪光灯（手电筒）视图
+     */
+    private val flashlightView:ImageView;
+
     var zoom: Float = 1f // in "factor"
     var orientation: String? = null
     var enableZoomGesture = false
@@ -139,6 +159,27 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
 
     private var minZoom: Float = 1f
     private var maxZoom: Float = 1f
+    /**
+     * 最后自动缩放时间
+     */
+    private  var  mLastAutoZoomTime:Long=0;
+    /**
+     * 最后点击时间，根据两次点击时间间隔用于区分单机和触摸缩放事件
+     */
+    private var mLastHoveTapTime:Long = 0;
+
+     /**
+     * 蜂鸣音效管理器：主要用于播放蜂鸣提示音和振动效果
+     */
+    private val mBeepManager:BeepManager
+    /**
+     * 环境光线管理器：主要通过传感器来监听光线的亮度变化
+     */
+    private val  mAmbientLightManager:AmbientLightManager
+
+    private val mViewfinderView:ViewfinderView
+
+    // private val ivFlashlightView:ImageView
 
    
     init{
@@ -146,18 +187,35 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
             Barcode.FORMAT_QR_CODE,Barcode.FORMAT_EAN_13
         ).build()
         mScanner=BarcodeScanning.getClient(options1)
-        // if(enableFrameProcessor){
-        //     Log.d(TAG, "init previewview for barcode")
 
-        // }else
-        // {
-            previewView = PreviewView(context)
-            previewView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-            previewView.installHierarchyFitter() // If this is not called correctly, view finder will be black/blank
-            addView(previewView)
-            Log.d(TAG, "init previewview not barcode"+previewView.height)
+        
 
-        // }
+        previewView = PreviewView(context)
+        previewView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+        previewView.installHierarchyFitter() // If this is not called correctly, view finder will be black/blank
+        addView(previewView)
+        Log.d(TAG, "init previewview not barcode"+previewView.height)
+
+
+        
+
+
+        mViewfinderView = ViewfinderView(context)
+        mViewfinderView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+        addView(mViewfinderView)
+
+        flashlightView =ImageView(context)
+        // flashlightView.setImageResource(R.drawable.zxl_flashlight_selector)
+        var drawable:Drawable=context.getResources().getDrawable(R.drawable.zxl_flashlight_selector,null)
+        flashlightView.setImageDrawable(drawable)
+        flashlightView.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+        // var tparms=flashlightView.layoutParams as MarginLayoutParams
+        // flashlightView.layoutParams=tparms!!
+        flashlightView.scaleType=ImageView.ScaleType.FIT_XY
+        flashlightView.setAdjustViewBounds(true)
+        addView(flashlightView)
+
+
         scaleGestureListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 zoom = max(min((zoom * detector.scaleFactor), maxZoom), minZoom)
@@ -189,6 +247,27 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
                 reactContext.removeLifecycleEventListener(this)
             }
         })
+        mBeepManager=BeepManager(context)
+        mAmbientLightManager=AmbientLightManager(context)
+        mAmbientLightManager!!.register()
+        var tm:AmbientLightManager.OnLightSensorEventListener?=object:AmbientLightManager.OnLightSensorEventListener{
+            override fun onSensorChanged( dark:Boolean, lightLux:Float){
+            if (flashlightView != null&&camera!=null) {
+                if (dark) {
+                    // Log.d(TAG,"mOnLightSensorEventListener,lightLux:"+lightLux+";flashlightView:"+flashlightView!!.getVisibility()+";View.VISIBLE="+View.VISIBLE+";:INVISIBLE="+View.INVISIBLE)
+                    if (flashlightView.getVisibility() != View.VISIBLE) {
+                        flashlightView.setVisibility(View.VISIBLE);
+                        flashlightView.setSelected(camera!!.cameraInfo.torchState.value==TorchState.ON)
+                    }
+                } else if (flashlightView!!.getVisibility() == View.VISIBLE && camera!!.cameraInfo.torchState.value!=TorchState.ON) {
+                    flashlightView.setVisibility(View.INVISIBLE);
+                    flashlightView.setSelected(false)
+                }
+            }
+        }}
+        if(tm!=null){
+            mAmbientLightManager.mOnLightSensorEventListener=tm
+        }
         update(propsThatRequireSessionReconfiguration)
     }
     override fun onConfigurationChanged(newConfig: Configuration?) {
@@ -318,19 +397,7 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
                 .setTargetRotation(outputRotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setBackgroundExecutor(cameraExecutor)
-                // .setAnalyzer(cameraExecutor){imageProxy:ImageProxy->
-                //     val mediaImage=imageProxy.image
-                //     if(mediaImage!=null){
-                //         val image:InputImage=InputImage.fromMediaImage(mediaImage,imageProxy.imageInfo.rotationDegrees)
-                //         mScanner?.process(image)?.addOnSuccessListener{barcodeList:List<Barcode>->
-                //             val barcode=barcodeList.getOrNull(0);
-                //             barcode?.rawValue?.let{value:String->
-                //                 invokeOnBarcodeScaned(value)
-                //             }
-                //         }
-                //     }
-
-                // }
+                
 
             if (format == null) {
                 // let CameraX automatically find best resolution for the target aspect ratio
@@ -341,7 +408,6 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
                 imageAnalysisBuilder.setTargetAspectRatio(aspectRatio)
             } 
 
-            Log.d(TAG, "previewView.height, previewView.width:"+previewView.height+":::"+previewView.width)
 
 
             // Unbind use cases before rebinding
@@ -367,9 +433,12 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
                                 val image:InputImage=InputImage.fromMediaImage(mediaImage,imageProxy.imageInfo.rotationDegrees)
                                 mScanner?.process(image)?.addOnSuccessListener{barcodeList:List<Barcode>->
                                     val barcode=barcodeList.getOrNull(0);
-                                    Log.d(TAG, "barcodey get"+barcode?.rawValue)
                                     barcode?.rawValue?.let{value:String->
+                                        mBeepManager.playBeepSound()
                                         Log.d(TAG, "invokeOnBarcodeScaned::"+value)
+                                        Log.d(TAG,"flashlightView width::"+flashlightView.width+";"+flashlightView.height)
+                                        Log.d(TAG, "previewView.height, previewView.width:"+previewView.height+":::"+previewView.width)
+
                                         invokeOnBarcodeScaned(value)
                                     }
                                 }
