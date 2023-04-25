@@ -495,6 +495,6 @@ export class Camera extends React.PureComponent<CameraProps> {
 
 // requireNativeComponent automatically resolves 'CameraView' to 'CameraViewManager'
 const NativeCameraView = requireNativeComponent<NativeCameraViewProps>(
-  'BarcodeView',
-  Camera,
+  'BarcodeView'
+  //, Camera,
 );
