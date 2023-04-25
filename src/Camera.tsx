@@ -1,4 +1,4 @@
-import React, { version } from 'react';
+import React from 'react';
 import { requireNativeComponent, NativeModules, NativeSyntheticEvent, findNodeHandle, NativeMethods, Platform } from 'react-native';
 import type { VideoFileType } from '.';
 import type { CameraDevice } from './CameraDevice';
