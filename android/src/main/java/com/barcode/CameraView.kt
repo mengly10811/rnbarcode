@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 
 import android.widget.FrameLayout
+import android.widget.Button
 import android.widget.ImageView
 import android.annotation.SuppressLint
 import android.util.Log
@@ -205,16 +206,32 @@ class CameraView(context: Context): FrameLayout(context), LifecycleOwner{
         addView(mViewfinderView)
 
         flashlightView =ImageView(context)
-        // flashlightView.setImageResource(R.drawable.zxl_flashlight_selector)
-        var drawable:Drawable=context.getResources().getDrawable(R.drawable.zxl_flashlight_selector,null)
+        // flashlightView.setImageResource(R.drawable.zxl_flashlight_off)
+        var drawable:Drawable=context.getResources().getDrawable(R.drawable.zxl_flashlight_off,null)
         flashlightView.setImageDrawable(drawable)
-        flashlightView.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
-        // var tparms=flashlightView.layoutParams as MarginLayoutParams
-        // flashlightView.layoutParams=tparms!!
-        flashlightView.scaleType=ImageView.ScaleType.FIT_XY
-        flashlightView.setAdjustViewBounds(true)
+       
+        flashlightView.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT,Gravity.CENTER)
+        var tparms=flashlightView.layoutParams as MarginLayoutParams
+        tparms.topMargin=10
+        flashlightView.layoutParams=tparms!!
+        flashlightView.scaleType=ImageView.ScaleType.CENTER
         addView(flashlightView)
+        if(flashlightView!=null){
+            flashlightView.setOnClickListener(){
+                if(camera!=null){
+                    if(camera!!.cameraInfo.torchState.value==TorchState.ON){
+                        camera!!.cameraControl.enableTorch(false)
+                    }else{
+                        camera!!.cameraControl.enableTorch(true)
+                    }
+                }
+            }
+        }
 
+        // var mButton=Button(context)
+        // mButton.layoutParams = LayoutParams(50, 100)
+        // mButton.text="手电筒"
+        // addView(mButton)
 
         scaleGestureListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
